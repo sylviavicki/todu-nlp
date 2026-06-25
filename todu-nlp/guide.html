@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智办 — 功能使用介绍</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%230d7377'/><path d='M9 16.5l4.5 4.5L23 11' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">
+<style>
+  /* 使用系统自带字体，无需网络 */
+
+  :root {
+    --ink: #1a1a2e;
+    --ink-soft: #2d2d44;
+    --paper: #faf8f5;
+    --paper-warm: #f5f0e8;
+    --card: #ffffff;
+    --teal: #0d7377;
+    --teal-light: #14a4ad;
+    --teal-pale: #e0f2f1;
+    --amber: #e8a838;
+    --amber-pale: #fef9ef;
+    --coral: #e76f51;
+    --coral-pale: #fef0ed;
+    --sage: #6b9e7a;
+    --sage-pale: #edf5ef;
+    --gold: #c8960c;
+    --danger: #c0392b;
+    --danger-pale: #fef0ed;
+    --blue: #0ea5e9;
+    --text-dark: #1a1a2e;
+    --text-mid: #4a4a5e;
+    --text-light: #6e6e80;
+    --line: #e4e0d8;
+    --line-soft: #f0ece4;
+    --shadow-sm: 0 1px 3px rgba(26,26,46,0.04), 0 1px 2px rgba(26,26,46,0.06);
+    --shadow-md: 0 4px 16px rgba(26,26,46,0.06), 0 2px 6px rgba(26,26,46,0.04);
+    --shadow-lg: 0 12px 40px rgba(26,26,46,0.10), 0 4px 12px rgba(26,26,46,0.06);
+    --radius: 14px;
+    --radius-sm: 8px;
+  }
+
+  /* ===== 暗色主题：仅当 data-theme="dark" 时生效，亮色 token 与原样式完全不动 ===== */
+  [data-theme="dark"] {
+    --ink: #0d1117;
+    --ink-soft: #1a1a2e;
+    --paper: #0f1419;
+    --paper-warm: #1a2028;
+    --card: #161b22;
+    --teal: #14a4ad;
+    --teal-light: #2dd4bf;
+    --teal-pale: rgba(45, 212, 191, 0.13);
+    --amber: #e8a838;
+    --amber-pale: rgba(232, 168, 56, 0.13);
+    --coral: #e76f51;
+    --coral-pale: rgba(231, 111, 81, 0.15);
+    --sage: #6b9e7a;
+    --sage-pale: rgba(107, 158, 122, 0.13);
+    --gold: #c8960c;
+    --danger: #ff6b6b;
+    --danger-pale: rgba(255,107,107,0.15);
+    --blue: #38bdf8;
+    --text-dark: #e4e6eb;
+    --text-mid: #a8acb5;
+    --text-light: #8a94a6;
+    --line: #2a323c;
+    --line-soft: #1f262f;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.35), 0 2px 6px rgba(0,0,0,0.3);
+    --shadow-lg: 0 12px 40px rgba(0,0,0,0.45), 0 4px 12px rgba(0,0,0,0.3);
+  }
+  [data-theme="dark"] body {
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(45,212,191,0.06) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(232,168,56,0.05) 0%, transparent 50%);
+  }
+  /* 暗色下 --ink 作为标题/强调文字处改用浅色（--ink 在暗色作为头部底色保持深色） */
+  [data-theme="dark"] .hero h2,
+  [data-theme="dark"] .section h2,
+  [data-theme="dark"] .example-block strong { color: var(--text-dark); }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  /* 键盘焦点可见性（WCAG 2.4.7） */
+  :focus-visible { outline: 2.5px solid var(--teal); outline-offset: 2px; border-radius: 6px; }
+
+  body {
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+    background: var(--paper);
+    background-image:
+      radial-gradient(ellipse at 20% 0%, rgba(13,115,119,0.03) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(232,168,56,0.03) 0%, transparent 50%);
+    color: var(--text-dark); line-height: 1.8;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== Header ===== */
+  .app-header {
+    background: var(--ink);
+    background-image: linear-gradient(135deg, var(--ink) 0%, var(--ink-soft) 100%);
+    color: #fff; padding: 0 32px; height: 64px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 20px rgba(26,26,46,0.12);
+  }
+  .app-header h1 {
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+    font-size: 22px; font-weight: 900; letter-spacing: 2px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  .app-header h1::before {
+    content: ''; display: inline-block; width: 6px; height: 22px;
+    background: var(--amber); border-radius: 2px; transform: translateY(3px);
+  }
+  .btn-back {
+    background: rgba(255,255,255,0.1); color: #fff; border: none; border-radius: 10px;
+    padding: 9px 20px; font-size: 14px; cursor: pointer; transition: all 0.25s ease;
+    font-weight: 500;
+  }
+  .btn-back:hover { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+  .btn-icon {
+    width: 38px; height: 38px; border-radius: 10px; border: none;
+    background: rgba(255,255,255,0.1); color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; transition: all 0.25s ease;
+  }
+  .btn-icon:hover { background: rgba(255,255,255,0.2); transform: translateY(-1px); }
+
+  /* ===== Layout ===== */
+  .container { max-width: 820px; margin: 0 auto; padding: 36px 24px 60px; }
+
+  /* ===== Hero ===== */
+  .hero {
+    text-align: center; margin-bottom: 40px; padding: 20px 0;
+  }
+  .hero h2 {
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+    font-size: 32px; font-weight: 900; color: var(--ink);
+    margin-bottom: 12px; letter-spacing: 1px;
+  }
+  .hero p { font-size: 15px; color: var(--text-light); max-width: 500px; margin: 0 auto; }
+
+  /* ===== Section ===== */
+  .section {
+    background: var(--card); border-radius: var(--radius); padding: 32px;
+    box-shadow: var(--shadow-md); margin-bottom: 24px;
+    border: 1px solid var(--line-soft);
+    animation: sectionIn 0.5s ease backwards;
+  }
+  .section:nth-child(1) { animation-delay: 0.05s; }
+  .section:nth-child(2) { animation-delay: 0.10s; }
+  .section:nth-child(3) { animation-delay: 0.15s; }
+  .section:nth-child(4) { animation-delay: 0.20s; }
+  .section:nth-child(5) { animation-delay: 0.25s; }
+  .section:nth-child(6) { animation-delay: 0.30s; }
+  .section:nth-child(7) { animation-delay: 0.35s; }
+  .section:nth-child(8) { animation-delay: 0.40s; }
+  @keyframes sectionIn {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .section h2 {
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+    font-size: 20px; color: var(--ink); margin-bottom: 18px;
+    padding-bottom: 12px; border-bottom: 2px solid var(--teal-pale);
+    display: flex; align-items: center; gap: 8px; font-weight: 700;
+  }
+  .section h3 {
+    font-size: 15px; color: var(--teal); margin: 20px 0 10px;
+    font-weight: 700; letter-spacing: 0.3px;
+  }
+  .section p { font-size: 14px; color: var(--text-mid); margin-bottom: 8px; }
+  .section ul { list-style: none; padding-left: 0; }
+  .section ul li {
+    font-size: 14px; color: var(--text-mid); padding: 7px 0 7px 24px;
+    position: relative;
+  }
+  .section ul li::before {
+    content: ''; position: absolute; left: 8px; top: 15px;
+    width: 6px; height: 6px; border-radius: 50%; background: var(--teal);
+  }
+
+  code {
+    background: var(--teal-pale); padding: 3px 10px; border-radius: 6px;
+    color: var(--teal); font-size: 13px;
+    font-family: "SF Mono", "Consolas", "Monaco", monospace;
+    border: 1px solid rgba(13,115,119,0.1);
+  }
+  .example-block {
+    background: var(--paper-warm); border-left: 4px solid var(--teal);
+    padding: 14px 18px; border-radius: var(--radius-sm); margin: 12px 0;
+    font-size: 13px; color: var(--text-mid); line-height: 2;
+  }
+  .example-block strong { color: var(--ink); }
+
+  /* ===== Filter Demo ===== */
+  .dot-demo {
+    display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+    margin-right: 6px; vertical-align: middle;
+  }
+  .filter-demo { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+  .chip-demo {
+    padding: 6px 16px; border-radius: 20px; border: 1.5px solid var(--line);
+    background: var(--card); font-size: 13px; color: var(--text-mid);
+    display: inline-flex; align-items: center; gap: 6px; font-weight: 500;
+  }
+
+  /* ===== Status Card Demo ===== */
+  .status-card-demo {
+    border-left: 4px solid var(--line); background: var(--card);
+    padding: 14px 18px; border-radius: var(--radius-sm); margin: 10px 0;
+    box-shadow: var(--shadow-sm); font-size: 14px; color: var(--text-mid);
+    border-top: 1px solid var(--line-soft);
+    border-right: 1px solid var(--line-soft);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .status-card-demo.todo { border-left-color: var(--teal-light); }
+  .status-card-demo.doing { border-left-color: var(--amber); }
+  .status-card-demo.done { border-left-color: var(--sage); opacity: 0.85; }
+  .status-card-demo.overdue { border-left-color: var(--danger); background: var(--coral-pale); }
+  .status-card-demo.near { border-left-color: var(--amber); background: var(--amber-pale); }
+
+  /* ===== Steps ===== */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li {
+    counter-increment: step; padding: 10px 0 10px 44px; position: relative;
+    font-size: 14px; color: var(--text-mid);
+  }
+  .steps li::before {
+    content: counter(step); position: absolute; left: 0; top: 8px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--teal); color: #fff; font-size: 13px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ===== Footer ===== */
+  .footer {
+    text-align: center; padding: 32px; color: var(--text-light); font-size: 13px;
+  }
+  .footer::before {
+    content: ''; display: block; width: 40px; height: 3px;
+    background: var(--amber); border-radius: 2px; margin: 0 auto 16px;
+  }
+
+  @media (max-width: 640px) {
+    .container { padding: 20px 12px 40px; }
+    .app-header { padding: 0 16px; }
+    .hero h2 { font-size: 24px; }
+    .section { padding: 22px; }
+  }
+</style>
+<script>
+  // 首屏前应用主题，与 index.html 共用同一 localStorage 键，跨页保持一致
+  (function () {
+    try {
+      var t = localStorage.getItem('zhiban_theme');
+      if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) {}
+  })();
+</script>
+</head>
+<body>
+
+<header class="app-header">
+  <h1>智办<span style="font-size:11px;font-weight:300;opacity:0.5;letter-spacing:3px;text-transform:uppercase;">Guide</span></h1>
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn-icon" id="btnTheme" title="切换深色/浅色主题"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
+    <button class="btn-back" onclick="history.back()">← 返回</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="hero">
+    <h2>功能使用介绍</h2>
+    <p>用自然语言创建待办，智能解析日期、时间、干系人。离线运行，数据本地存储，无需服务器。</p>
+  </div>
+
+  <div class="section">
+    <h2>自然语言创建待办</h2>
+    <p>在输入框中用日常语言描述待办事项，系统会自动解析出<strong>事项名称、描述、干系人、截止时间、状态、备注</strong>。</p>
+
+    <h3>支持的日期格式</h3>
+    <ul>
+      <li><code>0617</code> — 月+日（当年）</li>
+      <li><code>20260617</code> — 完整日期</li>
+      <li><code>2026-6-17</code> / <code>2026/6/17</code> — ISO 格式</li>
+      <li><code>6月20日</code> — 中文日期</li>
+      <li><code>明天</code> / <code>后天</code> / <code>一周后</code> — 相对时间</li>
+      <li><code>下周三</code> — 星期</li>
+      <li><code>3天后</code> — 天数偏移</li>
+    </ul>
+
+    <h3>支持的时间格式</h3>
+    <ul>
+      <li><code>9点</code> / <code>14:30</code> — 直接时间</li>
+      <li><code>上午9点</code> / <code>下午3点</code> / <code>晚上8点</code> — 带时段</li>
+    </ul>
+
+    <h3>支持的属性关键词</h3>
+    <ul>
+      <li><strong>干系人</strong>：<code>负责人是小王</code>、<code>由小王负责</code>、<code>分配给小王</code>、<code>@小王</code></li>
+      <li><strong>备注</strong>：<code>备注需要财务数据</code>、<code>注意XXX</code></li>
+      <li><strong>状态</strong>：<code>正在做</code> → 进行中、<code>已完成</code> → 已完成、<code>还没开始</code> → 未开始</li>
+    </ul>
+
+    <div class="example-block">
+      <strong>示例 1：</strong><br>
+      <code>0617下午3点前完成季度报告，负责人是小王，备注需要财务数据</code><br>
+      → 事项「完成季度报告」/ 截止 6月17日 15:00 / 干系人 小王 / 备注 需要财务数据
+    </div>
+
+    <div class="example-block">
+      <strong>示例 2：</strong><br>
+      <code>明天上午10点和客户开会，由张三跟进，注意带PPT</code><br>
+      → 事项「和客户开会」/ 截止 明天 10:00 / 干系人 张三 / 备注 带PPT
+    </div>
+
+    <div class="example-block">
+      <strong>示例 3（@提及干系人）：</strong><br>
+      <code>明天10点开产品评审会 @张三，注意需要PRD文档</code><br>
+      → 事项「开产品评审会」/ 截止 明天 10:00 / 干系人 张三 / 备注 需要PRD文档
+    </div>
+
+    <div class="example-block">
+      <strong>示例 4（@多人）：</strong><br>
+      <code>0618下午2点前提交代码审查 @李四 @王五</code><br>
+      → 事项「提交代码审查」/ 截止 6月18日 14:00 / 干系人 李四, 王五
+    </div>
+
+    <p>解析结果会显示在下方<strong>可编辑预览区</strong>，你可以修改任意字段后再点击创建。</p>
+    <p>若未输入或未识别到日期，新任务的截止时间<strong>默认为今天 23:59</strong>，可在预览区修改。</p>
+
+    <h3>粘贴图片创建待办</h3>
+    <p>直接把图片<strong>粘贴到输入框</strong>（Ctrl/Cmd + V），图片会作为该待办的<strong>附件</strong>保存（不做文字识别），预览区会显示缩略图，可点击 ×移除。</p>
+    <ul>
+      <li>若只粘贴图片、未输入文字，任务名称默认为 <code>图片任务</code> 加当日日期，如 <code>图片任务2026-06-18</code>。</li>
+      <li>若同时输入了文字，标题照常从文字解析，图片仅作为附件。</li>
+      <li>列表中图片以缩略图展示，<strong>点击缩略图</strong>可浮窗查看大图（点图片或按 ESC 关闭）。</li>
+      <li>图片会经压缩后存入本地，导出备份时随 JSON 一并保存，导入后可恢复。</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>筛选条件</h2>
+    <p>通过筛选栏快速查看不同状态的待办，每个筛选前有彩色圆点区分：</p>
+
+    <div class="filter-demo">
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--coral)"></span>未完成</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--coral)"></span>今日到期</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--ink)"></span>全部</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--gold)"></span>未开始</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--amber)"></span>进行中</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--sage)"></span>已完成</span>
+      <span class="chip-demo"><span class="dot-demo" style="background:var(--danger)"></span>已超期</span>
+    </div>
+
+    <ul>
+      <li><strong>未完成</strong>（珊瑚色点）— 所有未完成的待办</li>
+      <li><strong>今日到期</strong>（珊瑚色点）— 今日需完成的待办（截止时间在今天内）</li>
+      <li><strong>全部</strong>（墨色点）— 所有待办</li>
+      <li><strong>未开始</strong>（金色点）— 状态为"未开始"的待办</li>
+      <li><strong>进行中</strong>（琥珀色点）— 状态为"进行中"的待办</li>
+      <li><strong>已完成</strong>（绿色点）— 已完成的待办</li>
+      <li><strong>已超期</strong>（红色点）— 已过截止时间但未完成的待办</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>任务卡片颜色</h2>
+    <p>卡片左侧色条代表不同状态，背景色代表紧急程度：</p>
+
+    <div class="status-card-demo todo">
+      <strong>青色色条</strong> — 未开始状态
+    </div>
+    <div class="status-card-demo doing">
+      <strong>琥珀色条</strong> — 进行中状态
+    </div>
+    <div class="status-card-demo done">
+      <strong>绿色色条</strong> — 已完成状态（标题有删除线）
+    </div>
+    <div class="status-card-demo near">
+      <strong>琥珀色条 + 浅橙背景</strong> — 今日到期（今天需完成）
+    </div>
+    <div class="status-card-demo overdue">
+      <strong>红色色条 + 浅红背景</strong> — 已超期
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>任务操作</h2>
+    <p>每个任务卡片底部有以下操作按钮：</p>
+    <ul>
+      <li><strong>设为进行中</strong> — 将未开始的任务标记为进行中</li>
+      <li><strong>退回未开始</strong> — 进行中的任务可退回未开始状态</li>
+      <li><strong>完成</strong> — 标记任务为已完成</li>
+      <li><strong>重启</strong> — 将已完成的任务重新设为未开始</li>
+      <li><strong>延期一天</strong> — 已超期或今日到期的任务可顺延一天（仅在此时显示）</li>
+      <li><strong>设为循环</strong> — 将任务设为每周 / 每月 / 每季度循环任务（任务默认非循环）</li>
+      <li><strong>完成并下一周期</strong> — 循环任务专属，完成本期并把截止时间推进到下一周期、状态重置为未开始</li>
+      <li><strong>取消循环</strong> — 将循环任务恢复为普通任务</li>
+      <li><strong>编辑</strong> — 弹窗编辑所有字段（名称、描述、干系人、截止时间、状态、备注）</li>
+      <li><strong>删除</strong> — 弹出自定义确认弹窗，确认后才会删除（取消则数据不变）</li>
+    </ul>
+
+    <h3>循环任务</h3>
+    <p>对于按周、按月、按季度重复的任务（如周报、月度复盘、季度总结），可点击卡片上的 <strong>设为循环</strong> 按钮，选择周期后任务会带上 <code>↻ 每周/每月/每季度循环</code> 标签。</p>
+    <ul>
+      <li>循环任务的"完成"按钮会变为 <strong>完成并下一周期</strong>，点击后截止时间从原截止日自动推进一个周期、状态重置为未开始，实现"完成本期即进入下一期"。</li>
+      <li>无需新建任务，同一条任务直接跳转到下一周期，列表保持干净。</li>
+      <li>如需彻底结束循环，先点 <strong>取消循环</strong> 恢复为普通任务，再点完成即可。</li>
+    </ul>
+
+    <p>快捷键：<code>ESC</code> 关闭弹窗，输入框中 <code>Enter</code> 创建待办，<code>Shift+Enter</code> 换行。</p>
+  </div>
+
+  <div class="section">
+    <h2>搜索</h2>
+    <p>筛选栏右侧有搜索框，输入关键词即可在当前筛选结果中进一步搜索，支持匹配<strong>事项名称、描述、干系人、备注</strong>。</p>
+  </div>
+
+  <div class="section">
+    <h2>数据存储与备份</h2>
+
+    <h3>存储方式</h3>
+    <p>数据存储在浏览器的 <code>localStorage</code> 中，直接双击 <code>index.html</code> 即可离线使用，无需安装任何服务器。</p>
+
+    <h3>导出备份</h3>
+    <p>点击右上角 <strong>导出备份</strong> 按钮，将所有待办数据导出为 JSON 文件，保存到本地。</p>
+    <p>系统会<strong>每 7 天</strong>自动提醒你导出备份，防止浏览器数据清理导致丢失。</p>
+
+    <h3>恢复导入</h3>
+    <p>点击右上角 <strong>恢复导入</strong> 按钮，选择之前导出的 JSON 文件。支持三种模式：</p>
+    <ul>
+      <li><strong style="color:var(--teal);">本设备合并</strong> — 同一设备的备份恢复，按 id 去重后追加到当前列表。</li>
+      <li><strong style="color:var(--blue);">跨设备合并</strong> — 合并来自其他设备的备份，按内容（标题+截止时间+干系人）去重，适合多设备同步。</li>
+      <li><strong style="color:var(--amber);">覆盖导入</strong> — 清空当前数据，用文件内容替换。</li>
+    </ul>
+
+    <div class="example-block">
+      <strong>建议：</strong>定期导出备份（至少每周一次），将 JSON 文件保存到安全位置。如遇浏览器数据清理，可通过导入功能完整恢复。
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>主题切换</h2>
+    <p>点击右上角的<strong>月亮 / 太阳图标</strong>可在<strong>浅色</strong>与<strong>深色</strong>主题间切换，偏好会保存在本地，下次打开自动恢复，并在主页与介绍页之间保持一致。</p>
+    <ul>
+      <li>首次使用时，若未手动切换，将跟随系统的深浅色偏好（<code>prefers-color-scheme</code>）。</li>
+      <li>切换时浏览器地址栏 / 状态栏的配色也会同步变化。</li>
+      <li>主题切换仅改变外观，不影响任何待办数据。</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h2>快速上手流程</h2>
+    <ul class="steps">
+      <li>在输入框用自然语言描述待办（如：<code>明天下午3点开会，负责人李四</code>）</li>
+      <li>检查下方解析预览，按需修改字段</li>
+      <li>点击「创建」按钮添加待办</li>
+      <li>通过筛选栏查看不同状态的待办</li>
+      <li>点击任务卡片的操作按钮管理状态</li>
+      <li>定期点击「导出备份」按钮保存数据</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    智办 — 自然语言待办工具 · 离线运行 · 数据本地存储
+  </div>
+</div>
+
+<script>
+  // guide 页主题切换（与 index.html 共用 zhiban_theme，跨页持久）
+  (function () {
+    var SUN = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    var MOON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    function sync() {
+      var t = document.documentElement.getAttribute('data-theme') || 'light';
+      var b = document.getElementById('btnTheme');
+      if (b) b.innerHTML = t === 'dark' ? SUN : MOON;
+    }
+    sync();
+    var btn = document.getElementById('btnTheme');
+    if (btn) btn.addEventListener('click', function () {
+      var cur = document.documentElement.getAttribute('data-theme') || 'light';
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try { localStorage.setItem('zhiban_theme', next); } catch (e) {}
+      sync();
+    });
+  })();
+</script>
+
+</body>
+</html>
