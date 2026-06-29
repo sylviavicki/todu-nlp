@@ -57,6 +57,7 @@ function updateTask(task) { const tasks = loadFromStorage(); const idx = tasks.f
 function deleteTask(id) { const tasks = loadFromStorage(); saveToStorage(tasks.filter(t=>t.id!==id)); }
 function getAllTasks() { return loadFromStorage(); }
 function getTask(id) { return loadFromStorage().find(t=>t.id===id)||null; }
+function saveAll(tasks) { saveToStorage(tasks); }
 function exportToUserFolder(tasks) { return true; }
 function importFromUserFolder(callback) { callback(null); }
 `;
@@ -96,169 +97,169 @@ function mockUI() {
 beforeEach(() => { resetStorage(); mockUI(); });
 
 // ═══════════════════════════════════════════════════════════
-describe('setStatus', () => {
-  it('changes status from todo to doing', () => {
+describe('setStatus', async () => {
+  it('changes status from todo to doing', async () => {
     seedTasks([makeTask(1, { status: 'todo' })]);
-    App.setStatus(1, 'doing');
+    await App.setStatus(1, 'doing');
     assert.equal(App.tasks[0].status, 'doing');
     assert.ok(renderCalled);
   });
 
-  it('changes status from doing to done', () => {
+  it('changes status from doing to done', async () => {
     seedTasks([makeTask(1, { status: 'doing' })]);
-    App.setStatus(1, 'done');
+    await App.setStatus(1, 'done');
     assert.equal(App.tasks[0].status, 'done');
   });
 
-  it('changes status from done to todo (restart)', () => {
+  it('changes status from done to todo (restart)', async () => {
     seedTasks([makeTask(1, { status: 'done' })]);
-    App.setStatus(1, 'todo');
+    await App.setStatus(1, 'todo');
     assert.equal(App.tasks[0].status, 'todo');
   });
 
-  it('no-ops for non-existent task', () => {
+  it('no-ops for non-existent task', async () => {
     seedTasks([makeTask(1)]);
-    App.setStatus(999, 'doing');
+    await App.setStatus(999, 'doing');
     assert.equal(App.tasks[0].status, 'todo');
   });
 
-  it('updates updatedAt timestamp', () => {
+  it('updates updatedAt timestamp', async () => {
     seedTasks([makeTask(1, { status: 'todo' })]);
-    App.setStatus(1, 'doing');
+    await App.setStatus(1, 'doing');
     assert.notEqual(App.tasks[0].updatedAt, '2026-06-20T00:00:00.000Z');
   });
 
-  it('persists to localStorage', () => {
+  it('persists to localStorage', async () => {
     seedTasks([makeTask(1, { status: 'todo' })]);
-    App.setStatus(1, 'done');
+    await App.setStatus(1, 'done');
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(stored[0].status, 'done');
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('postponeTask', () => {
-  it('postpones due date by 1 day', () => {
+describe('postponeTask', async () => {
+  it('postpones due date by 1 day', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z' })]);
-    App.postponeTask(1);
+    await App.postponeTask(1);
     const newDue = new Date(App.tasks[0].due);
     assert.equal(newDue.toISOString().slice(0, 10), '2026-06-25');
   });
 
-  it('no-ops when task has no due date', () => {
+  it('no-ops when task has no due date', async () => {
     seedTasks([makeTask(1, { due: null })]);
-    App.postponeTask(1);
+    await App.postponeTask(1);
     assert.equal(App.tasks[0].due, null);
   });
 
-  it('no-ops for non-existent task', () => {
+  it('no-ops for non-existent task', async () => {
     seedTasks([makeTask(1)]);
-    App.postponeTask(999);
+    await App.postponeTask(999);
     assert.equal(App.tasks[0].due, null);
   });
 
-  it('persists to localStorage', () => {
+  it('persists to localStorage', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z' })]);
-    App.postponeTask(1);
+    await App.postponeTask(1);
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(new Date(stored[0].due).toISOString().slice(0, 10), '2026-06-25');
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('setRecurrence', () => {
-  it('sets daily recurrence', () => {
+describe('setRecurrence', async () => {
+  it('sets daily recurrence', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(1, 'daily');
+    await App.setRecurrence(1, 'daily');
     assert.equal(App.tasks[0].recurrence, 'daily');
   });
 
-  it('sets weekly recurrence', () => {
+  it('sets weekly recurrence', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(1, 'weekly');
+    await App.setRecurrence(1, 'weekly');
     assert.equal(App.tasks[0].recurrence, 'weekly');
   });
 
-  it('sets monthly recurrence', () => {
+  it('sets monthly recurrence', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(1, 'monthly');
+    await App.setRecurrence(1, 'monthly');
     assert.equal(App.tasks[0].recurrence, 'monthly');
   });
 
-  it('sets quarterly recurrence', () => {
+  it('sets quarterly recurrence', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(1, 'quarterly');
+    await App.setRecurrence(1, 'quarterly');
     assert.equal(App.tasks[0].recurrence, 'quarterly');
   });
 
-  it('cancels recurrence with null', () => {
+  it('cancels recurrence with null', async () => {
     seedTasks([makeTask(1, { recurrence: 'weekly' })]);
-    App.setRecurrence(1, null);
+    await App.setRecurrence(1, null);
     assert.equal(App.tasks[0].recurrence, null);
   });
 
-  it('cancels recurrence with undefined (falsy fallback)', () => {
+  it('cancels recurrence with undefined (falsy fallback)', async () => {
     seedTasks([makeTask(1, { recurrence: 'daily' })]);
-    App.setRecurrence(1, undefined);
+    await App.setRecurrence(1, undefined);
     assert.equal(App.tasks[0].recurrence, null);
   });
 
-  it('no-ops for non-existent task', () => {
+  it('no-ops for non-existent task', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(999, 'daily');
+    await App.setRecurrence(999, 'daily');
     assert.equal(App.tasks[0].recurrence, null);
   });
 
-  it('persists to localStorage', () => {
+  it('persists to localStorage', async () => {
     seedTasks([makeTask(1)]);
-    App.setRecurrence(1, 'daily');
+    await App.setRecurrence(1, 'daily');
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(stored[0].recurrence, 'daily');
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('completeAndNextCycle', () => {
-  it('advances due by 1 day for daily, resets status to todo', () => {
+describe('completeAndNextCycle', async () => {
+  it('advances due by 1 day for daily, resets status to todo', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z', recurrence: 'daily', status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     assert.equal(App.tasks[0].status, 'todo');
     assert.equal(new Date(App.tasks[0].due).toISOString().slice(0, 10), '2026-06-25');
   });
 
-  it('advances due by 7 days for weekly', () => {
+  it('advances due by 7 days for weekly', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z', recurrence: 'weekly', status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     assert.equal(new Date(App.tasks[0].due).toISOString().slice(0, 10), '2026-07-01');
   });
 
-  it('advances due by 1 month for monthly', () => {
+  it('advances due by 1 month for monthly', async () => {
     seedTasks([makeTask(1, { due: '2026-06-15T10:00:00.000Z', recurrence: 'monthly', status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     assert.equal(new Date(App.tasks[0].due).toISOString().slice(0, 10), '2026-07-15');
   });
 
-  it('advances due by 3 months for quarterly', () => {
+  it('advances due by 3 months for quarterly', async () => {
     seedTasks([makeTask(1, { due: '2026-03-15T10:00:00.000Z', recurrence: 'quarterly', status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     assert.equal(new Date(App.tasks[0].due).toISOString().slice(0, 10), '2026-06-15');
   });
 
-  it('no-ops when task has no recurrence', () => {
+  it('no-ops when task has no recurrence', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z', recurrence: null, status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     assert.equal(App.tasks[0].status, 'doing');
   });
 
-  it('no-ops for non-existent task', () => {
+  it('no-ops for non-existent task', async () => {
     seedTasks([makeTask(1)]);
-    App.completeAndNextCycle(999);
+    await App.completeAndNextCycle(999);
     assert.equal(App.tasks[0].status, 'todo');
   });
 
-  it('persists to localStorage', () => {
+  it('persists to localStorage', async () => {
     seedTasks([makeTask(1, { due: '2026-06-24T10:00:00.000Z', recurrence: 'daily', status: 'doing' })]);
-    App.completeAndNextCycle(1);
+    await App.completeAndNextCycle(1);
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(stored[0].status, 'todo');
     assert.equal(new Date(stored[0].due).toISOString().slice(0, 10), '2026-06-25');
@@ -266,165 +267,165 @@ describe('completeAndNextCycle', () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('confirmDelete + undoDelete', () => {
-  it('confirmDelete removes task from tasks array', () => {
+describe('confirmDelete + undoDelete', async () => {
+  it('confirmDelete removes task from tasks array', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
+    await App.confirmDelete();
     assert.equal(App.tasks.length, 1);
     assert.equal(App.tasks[0].id, 2);
   });
 
-  it('confirmDelete removes task from localStorage', () => {
+  it('confirmDelete removes task from localStorage', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
+    await App.confirmDelete();
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(stored.length, 1);
     assert.equal(stored[0].id, 2);
   });
 
-  it('confirmDelete stores deleted task for undo', () => {
+  it('confirmDelete stores deleted task for undo', async () => {
     seedTasks([makeTask(1)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
+    await App.confirmDelete();
     assert.ok(App.deletedTask);
     assert.equal(App.deletedTask.id, 1);
   });
 
-  it('confirmDelete clears pendingDeleteId', () => {
+  it('confirmDelete clears pendingDeleteId', async () => {
     seedTasks([makeTask(1)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
+    await App.confirmDelete();
     assert.equal(App.pendingDeleteId, null);
   });
 
-  it('undoDelete restores deleted task', () => {
+  it('undoDelete restores deleted task', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
-    App.undoDelete();
+    await App.confirmDelete();
+    await App.undoDelete();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].id, 1);
   });
 
-  it('undoDelete restores to localStorage', () => {
+  it('undoDelete restores to localStorage', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
-    App.undoDelete();
+    await App.confirmDelete();
+    await App.undoDelete();
     const stored = JSON.parse(storage['zhiban_tasks']);
     assert.equal(stored.length, 2);
   });
 
-  it('undoDelete clears deletedTask after restore', () => {
+  it('undoDelete clears deletedTask after restore', async () => {
     seedTasks([makeTask(1)]);
     App.pendingDeleteId = 1;
-    App.confirmDelete();
-    App.undoDelete();
+    await App.confirmDelete();
+    await App.undoDelete();
     assert.equal(App.deletedTask, null);
   });
 
-  it('undoDelete no-ops when no deletedTask', () => {
+  it('undoDelete no-ops when no deletedTask', async () => {
     seedTasks([makeTask(1)]);
     App.deletedTask = null;
-    App.undoDelete();
+    await App.undoDelete();
     assert.equal(App.tasks.length, 1);
   });
 
-  it('confirmDelete clears previous deleteTimer', () => {
+  it('confirmDelete clears previous deleteTimer', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     let cleared = false;
     App.deleteTimer = { _cleared: false };
     const origClear = global.clearTimeout;
     global.clearTimeout = (t) => { cleared = true; };
     App.pendingDeleteId = 1;
-    App.confirmDelete();
+    await App.confirmDelete();
     global.clearTimeout = origClear;
     assert.ok(App.deleteTimer);
   });
 
-  it('confirmDelete no-ops when pendingDeleteId is null', () => {
+  it('confirmDelete no-ops when pendingDeleteId is null', async () => {
     seedTasks([makeTask(1)]);
     App.pendingDeleteId = null;
-    App.confirmDelete();
+    await App.confirmDelete();
     assert.equal(App.tasks.length, 1);
   });
 
-  it('confirmDelete no-ops when task not found', () => {
+  it('confirmDelete no-ops when task not found', async () => {
     seedTasks([makeTask(1)]);
     App.pendingDeleteId = 999;
-    App.confirmDelete();
+    await App.confirmDelete();
     assert.equal(App.tasks.length, 1);
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('markExportDismissedToday / isExportDismissedToday', () => {
-  it('marks today as dismissed', () => {
+describe('markExportDismissedToday / isExportDismissedToday', async () => {
+  it('marks today as dismissed', async () => {
     App.markExportDismissedToday();
     const today = new Date().toISOString().slice(0, 10);
     assert.equal(storage['zhiban_export_dismissed'], today);
   });
 
-  it('isExportDismissedToday returns true after marking', () => {
+  it('isExportDismissedToday returns true after marking', async () => {
     App.markExportDismissedToday();
     assert.equal(App.isExportDismissedToday(), true);
   });
 
-  it('isExportDismissedToday returns false when not marked', () => {
+  it('isExportDismissedToday returns false when not marked', async () => {
     delete storage['zhiban_export_dismissed'];
     assert.equal(App.isExportDismissedToday(), false);
   });
 
-  it('isExportDismissedToday returns false for stale date', () => {
+  it('isExportDismissedToday returns false for stale date', async () => {
     storage['zhiban_export_dismissed'] = '2020-01-01';
     assert.equal(App.isExportDismissedToday(), false);
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('finishImport', () => {
-  it('toasts with import count only', () => {
-    App.finishImport(5, 0, 0);
+describe('finishImport', async () => {
+  it('toasts with import count only', async () => {
+    await App.finishImport(5, 0, 0);
     assert.ok(lastToast.includes('已导入 5 条'));
     assert.ok(!lastToast.includes('跳过'));
   });
 
-  it('toasts with invalid skipped count', () => {
-    App.finishImport(3, 2, 0);
+  it('toasts with invalid skipped count', async () => {
+    await App.finishImport(3, 2, 0);
     assert.ok(lastToast.includes('已导入 3 条'));
     assert.ok(lastToast.includes('跳过 2 条无效数据'));
   });
 
-  it('toasts with duplicate skipped count', () => {
-    App.finishImport(3, 0, 1);
+  it('toasts with duplicate skipped count', async () => {
+    await App.finishImport(3, 0, 1);
     assert.ok(lastToast.includes('已导入 3 条'));
     assert.ok(lastToast.includes('跳过 1 条重复'));
   });
 
-  it('toasts with both invalid and duplicate skipped', () => {
-    App.finishImport(3, 2, 1);
+  it('toasts with both invalid and duplicate skipped', async () => {
+    await App.finishImport(3, 2, 1);
     assert.ok(lastToast.includes('已导入 3 条'));
     assert.ok(lastToast.includes('跳过 2 条无效数据'));
     assert.ok(lastToast.includes('跳过 1 条重复'));
   });
 
-  it('reloads tasks after import', () => {
+  it('reloads tasks after import', async () => {
     seedTasks([makeTask(1)]);
-    App.finishImport(1, 0, 0);
+    await App.finishImport(1, 0, 0);
     assert.equal(App.tasks.length, 1);
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('confirmImportOverwrite', () => {
-  it('replaces all existing tasks with imported data', () => {
+describe('confirmImportOverwrite', async () => {
+  it('replaces all existing tasks with imported data', async () => {
     seedTasks([makeTask(1), makeTask(2)]);
     App.readImportFile = (cb) => cb([
       { title: 'imported A' }, { title: 'imported B' }, { title: 'imported C' },
     ], 0);
-    App.confirmImportOverwrite();
+    await App.confirmImportOverwrite();
     assert.equal(App.tasks.length, 3);
     assert.equal(App.tasks[0].title, 'imported A');
     assert.equal(App.tasks[0].id, 1);
@@ -432,56 +433,56 @@ describe('confirmImportOverwrite', () => {
     assert.equal(App.tasks[2].id, 3);
   });
 
-  it('handles empty import', () => {
+  it('handles empty import', async () => {
     seedTasks([makeTask(1)]);
     App.readImportFile = (cb) => cb([], 0);
-    App.confirmImportOverwrite();
+    await App.confirmImportOverwrite();
     assert.equal(App.tasks.length, 0);
   });
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('confirmImportMerge', () => {
-  it('appends new tasks to existing ones', () => {
+describe('confirmImportMerge', async () => {
+  it('appends new tasks to existing ones', async () => {
     seedTasks([makeTask(1, { title: 'existing' })]);
     App.readImportFile = (cb) => cb([
       { title: 'new task', id: null },
     ], 0);
-    App.confirmImportMerge();
+    await App.confirmImportMerge();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].title, 'new task');
     assert.equal(App.tasks[1].title, 'existing');
   });
 
-  it('skips duplicate by id', () => {
+  it('skips duplicate by id', async () => {
     seedTasks([makeTask(1, { title: 'existing' })]);
     App.readImportFile = (cb) => cb([
       { title: 'duplicate by id', id: 1 },
       { title: 'new task', id: null },
     ], 0);
-    App.confirmImportMerge();
+    await App.confirmImportMerge();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].title, 'new task');
   });
 
-  it('skips duplicate by content fingerprint', () => {
+  it('skips duplicate by content fingerprint', async () => {
     seedTasks([makeTask(1, { title: 'same', due: '2026-06-24T00:00:00.000Z', stakeholders: '张三' })]);
     App.readImportFile = (cb) => cb([
       { title: 'same', due: '2026-06-24T00:00:00.000Z', stakeholders: '张三', id: 99 },
       { title: 'new task', id: null },
     ], 0);
-    App.confirmImportMerge();
+    await App.confirmImportMerge();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].title, 'new task');
   });
 
-  it('assigns new ids to tasks without id', () => {
+  it('assigns new ids to tasks without id', async () => {
     seedTasks([makeTask(5, { title: 'existing' })]);
     App.readImportFile = (cb) => cb([
       { title: 'no id 1', id: null },
       { title: 'no id 2', id: null },
     ], 0);
-    App.confirmImportMerge();
+    await App.confirmImportMerge();
     assert.equal(App.tasks.length, 3);
     const ids = App.tasks.map(t => t.id);
     assert.ok(ids.includes(6));
@@ -490,37 +491,37 @@ describe('confirmImportMerge', () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-describe('confirmImportCrossMerge', () => {
-  it('appends new tasks with reassigned ids', () => {
+describe('confirmImportCrossMerge', async () => {
+  it('appends new tasks with reassigned ids', async () => {
     seedTasks([makeTask(1, { title: 'existing' })]);
     App.readImportFile = (cb) => cb([
       { title: 'cross task', id: 42 },
     ], 0);
-    App.confirmImportCrossMerge();
+    await App.confirmImportCrossMerge();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].title, 'cross task');
     assert.equal(App.tasks[0].id, 2);
   });
 
-  it('skips duplicate by content fingerprint', () => {
+  it('skips duplicate by content fingerprint', async () => {
     seedTasks([makeTask(1, { title: 'same', due: '2026-06-24T00:00:00.000Z', stakeholders: '李四' })]);
     App.readImportFile = (cb) => cb([
       { title: 'same', due: '2026-06-24T00:00:00.000Z', stakeholders: '李四', id: 99 },
       { title: 'unique', id: 100 },
     ], 0);
-    App.confirmImportCrossMerge();
+    await App.confirmImportCrossMerge();
     assert.equal(App.tasks.length, 2);
     assert.equal(App.tasks[0].title, 'unique');
   });
 
-  it('reassigns all ids sequentially', () => {
+  it('reassigns all ids sequentially', async () => {
     seedTasks([makeTask(10, { title: 'existing' })]);
     App.readImportFile = (cb) => cb([
       { title: 'a', id: 5 },
       { title: 'b', id: 7 },
       { title: 'c', id: 99 },
     ], 0);
-    App.confirmImportCrossMerge();
+    await App.confirmImportCrossMerge();
     const imported = App.tasks.filter(t => t.title !== 'existing');
     assert.equal(imported.length, 3);
     assert.equal(imported[0].id, 11);

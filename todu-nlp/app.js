@@ -4,7 +4,7 @@
  * 直接双击 index.html 即可使用，无需服务器
  */
 
-// ===================== 本地存储（localStorage） =====================
+// ===================== 数据存储层（本地 localStorage / 联网 GitHub 仓库） =====================
 const STORAGE_KEY = 'zhiban_tasks';
 
 // SVG 图标（不依赖系统 emoji 字体，国产系统/麒麟等无彩色 emoji 字体时也能正常显示）
@@ -13,63 +13,73 @@ const ICON_MOON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" s
 const ICON_SEARCH = '<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
 const ICON_DOC = '<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>';
 
-function loadFromStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const data = JSON.parse(raw);
-    if (!Array.isArray(data)) return [];
-    let maxId = 0;
-    for (const t of data) {
-      if (t.id) maxId = Math.max(maxId, t.id);
+// ----- 本地存储实现：包装原有同步 localStorage 逻辑为异步接口（行为与原版一致）-----
+class LocalStore {
+  _load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return [];
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) return [];
+      let maxId = 0;
+      for (const t of data) {
+        if (t.id) maxId = Math.max(maxId, t.id);
+      }
+      for (const t of data) {
+        if (!t.id) t.id = ++maxId;
+      }
+      return data;
+    } catch (e) {
+      console.error('读取本地存储失败', e);
+      return [];
     }
-    for (const t of data) {
-      if (!t.id) t.id = ++maxId;
-    }
-    return data;
-  } catch (e) {
-    console.error('读取本地存储失败', e);
-    return [];
   }
+
+  _save(tasks) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+  }
+
+  async getAllTasks() { return this._load(); }
+  async getTask(id) { return this._load().find(t => t.id === id) || null; }
+  async addTask(task) {
+    const tasks = this._load();
+    const maxId = tasks.reduce((m, t) => Math.max(m, t.id || 0), 0);
+    task.id = maxId + 1;
+    tasks.unshift(task);
+    this._save(tasks);
+    return task.id;
+  }
+  async updateTask(task) {
+    const tasks = this._load();
+    const idx = tasks.findIndex(t => t.id === task.id);
+    if (idx === -1) throw new Error('任务不存在');
+    tasks[idx] = task;
+    this._save(tasks);
+    return task.id;
+  }
+  async deleteTask(id) {
+    const tasks = this._load();
+    const filtered = tasks.filter(t => t.id !== id);
+    if (filtered.length === tasks.length) throw new Error('任务不存在');
+    this._save(filtered);
+  }
+  // 整体覆盖写入（导入覆写/合并/撤销删除用）
+  async saveAll(tasks) { this._save(tasks); }
 }
 
-function saveToStorage(tasks) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
-}
+// 当前数据存储实例。本地模式（file:// 或未配置 CLOUD_CONFIG）用 LocalStore；
+// 联网模式（部署后含 cloud-config.js）在 App.init 中替换为 CloudStore。
+// 默认本地，保证直接双击 index.html 行为与原版完全一致。
+let store = new LocalStore();
 
-function addTask(task) {
-  const tasks = loadFromStorage();
-  const maxId = tasks.reduce((m, t) => Math.max(m, t.id || 0), 0);
-  task.id = maxId + 1;
-  tasks.unshift(task);
-  saveToStorage(tasks);
-  return task.id;
-}
-
-function updateTask(task) {
-  const tasks = loadFromStorage();
-  const idx = tasks.findIndex(t => t.id === task.id);
-  if (idx === -1) throw new Error('任务不存在');
-  tasks[idx] = task;
-  saveToStorage(tasks);
-  return task.id;
-}
-
-function deleteTask(id) {
-  const tasks = loadFromStorage();
-  const filtered = tasks.filter(t => t.id !== id);
-  if (filtered.length === tasks.length) throw new Error('任务不存在');
-  saveToStorage(filtered);
-}
-
-function getAllTasks() {
-  return loadFromStorage();
-}
-
-function getTask(id) {
-  const tasks = loadFromStorage();
-  return tasks.find(t => t.id === id) || null;
-}
+// 统一异步数据接口：App 与业务逻辑只通过这些函数读写数据，
+// 这样在本地/云端之间切换时，调用点只需 await，无需感知底层实现。
+async function getAllTasks() { return store.getAllTasks(); }
+async function getTask(id) { return store.getTask(id); }
+async function addTask(task) { return store.addTask(task); }
+async function updateTask(task) { return store.updateTask(task); }
+async function deleteTask(id) { return store.deleteTask(id); }
+async function saveAll(tasks) { return store.saveAll(tasks); }
 
 // 导出：下载JSON文件备份
 function exportToUserFolder(tasks) {
@@ -428,10 +438,22 @@ const App = {
   firstRender: true,
   draft: { title: '', description: '', stakeholders: '', due: null, note: '', status: 'todo', image: null },
 
-  init() {
+  async init() {
     this.bindEvents();
     this.initTheme();
-    this.loadTasks();
+    // 选择数据存储：联网模式需同时满足「部署版含 cloud-config.js」且「非 file:// 协议」。
+    // 本地双击 index.html（file://）即使存在 cloud-config.js 也强制走本地，行为与原版一致。
+    if (window.CLOUD_CONFIG && location.protocol !== 'file:') {
+      store = new CloudStore(window.CLOUD_CONFIG);
+      // 联网模式需先输入 GitHub Token（作为访问凭证），再加载。
+      // 用户取消输入则给出提示并以空数据渲染（不阻塞页面）。
+      try {
+        await store.ensureToken();
+      } catch (e) {
+        this.toast('未输入 Token，暂无法读取云端数据', 'error');
+      }
+    }
+    await this.loadTasks();
     this.render();
     // 恢复从 guide 页面返回前的输入草稿
     const savedDraft = sessionStorage.getItem('zhiban_draft');
@@ -694,7 +716,7 @@ const App = {
     this.draft.status = document.getElementById('e_status').value;
   },
 
-  handleCreate() {
+  async handleCreate() {
     // 仅粘贴图片、未输入文字时，标题默认为「图片任务YYYY-MM-DD」
     if (!this.draft.title && this.draft.image) {
       this.draft.title = `图片任务${this.todayStr()}`;
@@ -717,7 +739,7 @@ const App = {
     }
 
     try {
-      const id = addTask(task);
+      const id = await addTask(task);
       task.id = id;
       this.tasks.unshift(task);
       // 清空输入
@@ -793,9 +815,9 @@ const App = {
     });
   },
 
-  loadTasks() {
+  async loadTasks() {
     try {
-      this.tasks = getAllTasks();
+      this.tasks = await getAllTasks();
       this.sortTasks();
     } catch (e) {
       this.toast('加载数据失败', 'error');
@@ -987,12 +1009,12 @@ const App = {
     }).join('');
   },
 
-  setStatus(id, status) {
+  async setStatus(id, status) {
     const task = this.tasks.find(t => t.id === id);
     if (!task) return;
     task.status = status;
     task.updatedAt = new Date().toISOString();
-    updateTask(task);
+    await updateTask(task);
     this.render();
     const labels = { todo: '已重置为未开始', doing: '已开始', done: '已完成' };
     this.toast(labels[status]);
@@ -1013,14 +1035,14 @@ const App = {
     if (img) img.src = '';
   },
 
-  postponeTask(id) {
+  async postponeTask(id) {
     const task = this.tasks.find(t => t.id === id);
     if (!task || !task.due) return;
     const oldDue = new Date(task.due);
     oldDue.setDate(oldDue.getDate() + 1);
     task.due = oldDue.toISOString();
     task.updatedAt = new Date().toISOString();
-    updateTask(task);
+    await updateTask(task);
     this.render();
     this.toast(`已延期至 ${this.formatDate(task.due)}`);
   },
@@ -1044,13 +1066,13 @@ const App = {
   },
 
   // 完成本期并跳转到下一周期：截止时间推进、状态重置为未开始（当前任务直接跳转，不新建）
-  completeAndNextCycle(id) {
+  async completeAndNextCycle(id) {
     const task = this.tasks.find(t => t.id === id);
     if (!task || !task.recurrence) return;
     task.due = this.advanceDue(task.due, task.recurrence);
     task.status = 'todo';
     task.updatedAt = new Date().toISOString();
-    updateTask(task);
+    await updateTask(task);
     this.render();
     const shortLabels = { daily: '次日', weekly: '下周', monthly: '下月', quarterly: '下季度' };
     this.toast(`已完成本期，已跳转到${shortLabels[task.recurrence]}（${this.formatDate(task.due)}）`);
@@ -1078,12 +1100,12 @@ const App = {
   },
 
   // 设置或取消循环周期（传 null 即取消循环）
-  setRecurrence(id, recurrence) {
+  async setRecurrence(id, recurrence) {
     const task = this.tasks.find(t => t.id === id);
     if (!task) return;
     task.recurrence = recurrence || null;
     task.updatedAt = new Date().toISOString();
-    updateTask(task);
+    await updateTask(task);
     this.render();
     const fullLabels = { daily: '每日', weekly: '每周', monthly: '每月', quarterly: '每季度' };
     if (recurrence) {
@@ -1107,7 +1129,7 @@ const App = {
     document.getElementById('deleteModal').classList.add('active');
   },
 
-  confirmDelete() {
+  async confirmDelete() {
     const id = this.pendingDeleteId;
     if (id === null) return;
     const task = this.tasks.find(t => t.id === id);
@@ -1120,12 +1142,12 @@ const App = {
     }
     this.deletedTask = null;
 
-    // 立即从内存与 localStorage 真删，保证刷新不会复活
+    // 立即从内存与存储真删，保证刷新不会复活
     this.tasks = this.tasks.filter(t => t.id !== id);
     try {
-      deleteTask(id);
+      await deleteTask(id);
     } catch (e) {
-      // localStorage 已无此任务，忽略
+      // 存储中已无此任务，忽略
     }
     // 内存留底，用于 5 秒内撤销
     this.deletedTask = task;
@@ -1143,7 +1165,7 @@ const App = {
     }, 5000);
   },
 
-  undoDelete() {
+  async undoDelete() {
     if (!this.deletedTask) return;
     if (this.deleteTimer) {
       clearTimeout(this.deleteTimer);
@@ -1151,12 +1173,12 @@ const App = {
     }
     const task = this.deletedTask;
     this.deletedTask = null;
-    // 从内存与 localStorage 恢复
+    // 从内存与存储恢复
     this.tasks.unshift(task);
-    const all = loadFromStorage();
+    const all = await getAllTasks();
     // 避免重复 id（理论上不会，但防御性处理）
     if (!all.find(t => t.id === task.id)) all.unshift(task);
-    saveToStorage(all);
+    await saveAll(all);
     this.render();
     this.toast('已撤销删除');
   },
@@ -1224,7 +1246,7 @@ const App = {
     this.editingImage = null;
   },
 
-  saveEdit() {
+  async saveEdit() {
     if (!this.editingId) return;
     const task = this.tasks.find(t => t.id === this.editingId);
     if (!task) return;
@@ -1245,7 +1267,7 @@ const App = {
     }
 
     try {
-      updateTask(task);
+      await updateTask(task);
     } catch (e) {
       if (e && (e.name === 'QuotaExceededError' || /quota/i.test(e.message || ''))) {
         this.toast('存储空间不足，请删除部分带图待办或导出后清理', 'error');
@@ -1337,9 +1359,9 @@ const App = {
 
   // 公共：读文件 → 校验 → 清洗。onCleaned(cleaned, invalidSkipped) 处理实际导入逻辑；
   // 返回 false 表示中途出错/取消，onCleaned 不再执行。
-  readImportFile(onCleaned) {
+  async readImportFile(onCleaned) {
     document.getElementById('importConfirmModal').classList.remove('active');
-    importFromUserFolder((data) => {
+    importFromUserFolder(async (data) => {
       if (!data) {
         this.toast('导入已取消或文件无效', 'error');
         return;
@@ -1355,7 +1377,7 @@ const App = {
           return;
         }
         const invalidSkipped = data.length - cleaned.length;
-        onCleaned(cleaned, invalidSkipped);
+        await onCleaned(cleaned, invalidSkipped);
       } catch (err) {
         this.toast('导入失败: ' + err.message, 'error');
       }
@@ -1363,8 +1385,8 @@ const App = {
   },
 
   // 统一的完成提示
-  finishImport(imported, invalidSkipped, dupSkipped) {
-    this.loadTasks();
+  async finishImport(imported, invalidSkipped, dupSkipped) {
+    await this.loadTasks();
     this.render();
     const parts = [];
     if (invalidSkipped > 0) parts.push(`跳过 ${invalidSkipped} 条无效数据`);
@@ -1373,21 +1395,21 @@ const App = {
     this.toast(`已导入 ${imported} 条待办` + note);
   },
 
-  confirmImportOverwrite() {
-    this.readImportFile((cleaned, invalidSkipped) => {
+  async confirmImportOverwrite() {
+    await this.readImportFile(async (cleaned, invalidSkipped) => {
       // 覆盖导入：清空现有数据，用清洗后的内容替换并重排 ID
       let nextId = 0;
       cleaned.forEach(t => { t.id = ++nextId; });
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
-      this.finishImport(cleaned.length, invalidSkipped, 0);
+      await saveAll(cleaned);
+      await this.finishImport(cleaned.length, invalidSkipped, 0);
     });
   },
 
-  confirmImportMerge() {
-    this.readImportFile((cleaned, invalidSkipped) => {
+  async confirmImportMerge() {
+    await this.readImportFile(async (cleaned, invalidSkipped) => {
       // 本设备合并：按 id 去重；对 id 不冲突的项再按内容指纹兜底去重。
       // 防止覆盖导入/重建打乱 id 体系后，内容相同的已完成任务被当作新任务重复插入
-      const existing = loadFromStorage();
+      const existing = await getAllTasks();
       const existingIds = new Set(existing.map(t => t.id));
       const existingFps = new Set(existing.map(t => this.contentFingerprint(t)));
       const batchIds = new Set();
@@ -1417,16 +1439,16 @@ const App = {
           batchIds.add(maxId);
         }
       }
-      saveToStorage([...toInsert, ...existing]);
-      this.finishImport(toInsert.length, invalidSkipped, dupSkipped);
+      await saveAll([...toInsert, ...existing]);
+      await this.finishImport(toInsert.length, invalidSkipped, dupSkipped);
     });
   },
 
-  confirmImportCrossMerge() {
-    this.readImportFile((cleaned, invalidSkipped) => {
+  async confirmImportCrossMerge() {
+    await this.readImportFile(async (cleaned, invalidSkipped) => {
       // 跨设备合并：按内容指纹（标题+截止时间+干系人）去重，
       // 导入项全部重新分配连续新 id，避免不同设备的 id 体系冲突
-      const existing = loadFromStorage();
+      const existing = await getAllTasks();
       const existingFps = new Set(existing.map(t => this.contentFingerprint(t)));
       const batchFps = new Set();
       const toInsert = [];
@@ -1440,8 +1462,8 @@ const App = {
       // 全部重新分配连续新 id
       let maxId = existing.reduce((m, t) => Math.max(m, t.id || 0), 0);
       toInsert.forEach(t => { t.id = ++maxId; });
-      saveToStorage([...toInsert, ...existing]);
-      this.finishImport(toInsert.length, invalidSkipped, dupSkipped);
+      await saveAll([...toInsert, ...existing]);
+      await this.finishImport(toInsert.length, invalidSkipped, dupSkipped);
     });
   },
 
@@ -1584,7 +1606,7 @@ const App = {
 
 // 启动（确保DOM就绪）
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => App.init());
+  document.addEventListener('DOMContentLoaded', () => App.init().catch(e => console.error('init failed', e)));
 } else {
-  App.init();
+  App.init().catch(e => console.error('init failed', e));
 }
