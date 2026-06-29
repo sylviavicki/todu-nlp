@@ -20,6 +20,10 @@ class CloudStore {
     // 内存缓存：减少 GET 次数；写入后失效或更新
     this._cache = null; // { tasks: [], sha: null | string }
     this._tokenKey = 'zhiban_gh_token';
+    // GET 缓存破坏计数器：GitHub Contents API 的 GET 响应带 max-age≈60s 的缓存头，
+    // 同一浏览器短时间内会读到旧 sha，导致下一次 PUT 因 sha 不匹配而 409。
+    // 每次 GET 追加递增参数强制走源站，避免缓存。
+    this._bust = 0;
   }
 
   // ===== Token 门 =====
@@ -72,6 +76,10 @@ class CloudStore {
     sessionStorage.removeItem(this._tokenKey);
   }
 
+  _delay(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
+
   // ===== HTTP =====
   async _request(method, body) {
     const token = await this.ensureToken();
@@ -79,12 +87,17 @@ class CloudStore {
       'Authorization': `Bearer ${token}`,
       'Accept': 'application/vnd.github+json',
     };
-    const opts = { method, headers };
+    const opts = { method, headers, cache: 'no-store' };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
-    const res = await fetch(this.apiBase + (method === 'GET' ? `?ref=${this.branch}` : ''), opts);
+    let url = this.apiBase;
+    if (method === 'GET') {
+      // ref=分支 + 递增破坏参数：双重保证不读到浏览器/GitHub CDN 缓存的旧 sha
+      url += `?ref=${this.branch}&_=${this._bust++}`;
+    }
+    const res = await fetch(url, opts);
     if (res.status === 401 || res.status === 403) {
       // token 失效：清掉重新弹框，并抛出以便上层重试
       this._clearToken();
@@ -162,12 +175,14 @@ class CloudStore {
     };
     let cur = this._cache ? this._cache.sha : null;
     let r = await attempt(cur);
-    if (r.conflict) {
-      // 冲突：拉最新，再重试一次（用最新 sha，但用我们这次要写的内容覆盖）
+    // 409 冲突：可能是多端改写，也可能是 GitHub 提交传播的瞬时一致性窗口。
+    // 每次重试前延时一小段，并用绕过缓存的 GET 拿最新 sha，最多重试两次。
+    for (let i = 0; r.conflict && i < 2; i++) {
+      await this._delay(300 * (i + 1));
       const fresh = await this._fetchFile();
       r = await attempt(fresh.sha);
-      if (r.conflict) throw new Error('CLOUD_CONFLICT'); // 仍冲突，放弃
     }
+    if (r.conflict) throw new Error('CLOUD_CONFLICT'); // 仍冲突，放弃
     this._cache = { tasks, sha: r.sha || (this._cache && this._cache.sha) };
     return this._cache;
   }
