@@ -1,11 +1,17 @@
 /**
- * CloudStore —— 联网模式数据存储实现
+ * CloudStore —— 联网模式数据存储实现（本地优先 + 定时后台同步）
  *
  * 通过 GitHub Contents API 把全部任务读写到仓库里的一个 JSON 文件（如 todu-nlp/tasks.json）。
- * 整文件“读-改-写”：个人单用户、低并发场景足够；用 sha 乐观锁防止多端互相覆盖。
+ *
+ * 【本地优先】所有读写都先落 localStorage（zhiban_cloud_cache）秒回，UI 零等待；
+ * 网络同步放后台：写入后防抖 ~4s 自动 push、20s 定时拉取远端、切到后台/关闭前 flush。
+ * 即便同步从未成功，重开页面也能从 localStorage 恢复并补传——不丢数据。
+ *
+ * 【合并】单次 _sync() 同时 pull+push：GET 远端最新 → 与本地按 id+updatedAt 轻量合并
+ * （含删除墓碑防「换设备时被删任务复活」）→ 若有改动则 PUT 合并结果（带最新 sha，含 409 重试）。
  *
  * 访问凭证 = GitHub fine-grained PAT（仅给目标仓库 Contents 读写权限）。
- * 首次使用弹框输入，存 sessionStorage（关浏览器即失效，避免长期驻留）。
+ * 首次同步时弹框输入，存 sessionStorage（关浏览器即失效，避免长期驻留）。
  *
  * 仅在部署版（index.html 引入了 cloud-config.js，设置了 window.CLOUD_CONFIG）时启用；
  * 本地 file:// 直开 index.html 不会加载本文件，走 LocalStore，行为与原版一致。
@@ -17,18 +23,72 @@ class CloudStore {
     this.path = config.path;
     this.branch = config.branch || 'main';
     this.apiBase = `https://api.github.com/repos/${this.owner}/${this.repo}/contents/${encodeURIComponent(this.path).replace(/%2F/g, '/')}`;
-    // 内存缓存：减少 GET 次数；写入后失效或更新
-    this._cache = null; // { tasks: [], sha: null | string }
+    // 本地缓存（工作副本）：{ tasks:[], sha, lastSyncedAt, tombstones:[{id,at}] }
+    this._cache = null;
+    this._localKey = 'zhiban_cloud_cache';
     this._tokenKey = 'zhiban_gh_token';
-    // GET 缓存破坏计数器：GitHub Contents API 的 GET 响应带 max-age≈60s 的缓存头，
-    // 同一浏览器短时间内会读到旧 sha，导致下一次 PUT 因 sha 不匹配而 409。
-    // 每次 GET 追加递增参数强制走源站，避免缓存。
+    // GET 缓存破坏计数器：GitHub Contents API 的 GET 响应带 max-age≈60s 缓存头，
+    // 同一浏览器短时间内会读到旧 sha，导致 PUT 因 sha 不匹配而 409。每次 GET 追加递增参数强制走源站。
     this._bust = 0;
+    // 同步状态
+    this._dirty = false;       // 本地有未 push 的改动
+    this._syncing = false;     // 一次 _sync 进行中
+    this._syncTimer = null;    // 写入后防抖 push 的 setTimeout
+    this._pullTimer = null;    // 20s 定时拉取的 setInterval
+    this._status = 'idle';     // idle|pending|syncing|synced|error|nologin
+    this._dot = null;          // 状态徽标 DOM
+    this._btn = null;          // 「立即同步」按钮 DOM
+    // 远端拉取到本地没有的新任务时回调（供 App 刷新列表），可选
+    this.onSyncUpdate = null;
+  }
+
+  // ===== 本地缓存层 =====
+  _ensureLoaded() {
+    if (this._cache) return;
+    this._cache = this._loadLocal();
+  }
+
+  _loadLocal() {
+    try {
+      const raw = localStorage.getItem(this._localKey);
+      if (raw) {
+        const d = JSON.parse(raw);
+        return {
+          tasks: Array.isArray(d.tasks) ? d.tasks : [],
+          sha: d.sha || null,
+          lastSyncedAt: d.lastSyncedAt || null,
+          tombstones: Array.isArray(d.tombstones) ? d.tombstones : [],
+        };
+      }
+    } catch (e) { console.warn('本地云端缓存读取失败', e); }
+    return { tasks: [], sha: null, lastSyncedAt: null, tombstones: [] };
+  }
+
+  _saveLocal() {
+    try {
+      localStorage.setItem(this._localKey, JSON.stringify({
+        tasks: this._cache.tasks,
+        sha: this._cache.sha,
+        lastSyncedAt: this._cache.lastSyncedAt,
+        tombstones: this._cache.tombstones,
+      }));
+    } catch (e) { console.warn('本地云端缓存写入失败', e); }
+  }
+
+  // 写操作收尾：持久化 + 标脏 + 防抖 push
+  _touch() {
+    this._dirty = true;
+    this._saveLocal();
+    this._setStatus('pending');
+    if (this._syncTimer) clearTimeout(this._syncTimer);
+    this._syncTimer = setTimeout(() => {
+      this._syncTimer = null;
+      this._sync();
+    }, 4000);
   }
 
   // ===== Token 门 =====
   // 确保已获得 token：sessionStorage 有就直接返回；没有则弹框让用户输入。
-  // 返回 Promise<string>。输入错误（后续请求 401/403）会清 token 并重新弹框。
   ensureToken() {
     const existing = sessionStorage.getItem(this._tokenKey);
     if (existing) return Promise.resolve(existing);
@@ -44,7 +104,6 @@ class CloudStore {
 
   _promptForToken() {
     return new Promise(resolve => {
-      // 构建遮罩与输入框（动态创建，不依赖 index.html 增加节点）
       const overlay = document.createElement('div');
       overlay.id = 'ghTokenOverlay';
       overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:9999;';
@@ -99,7 +158,6 @@ class CloudStore {
     }
     const res = await fetch(url, opts);
     if (res.status === 401 || res.status === 403) {
-      // token 失效：清掉重新弹框，并抛出以便上层重试
       this._clearToken();
       const err = new Error('TOKEN_INVALID'); err.code = 'TOKEN_INVALID'; err.status = res.status;
       throw err;
@@ -107,8 +165,8 @@ class CloudStore {
     return res;
   }
 
-  // ===== 文件读写 =====
-  // 拉取 tasks.json。404 视为文件尚未创建（空数据）。
+  // ===== 文件读写（纯网络，不碰本地缓存）=====
+  // 拉取 tasks.json。404 视为文件尚未创建（空数据）。返回 { tasks, sha }，不改 this._cache。
   async _fetchFile() {
     let res;
     try {
@@ -117,19 +175,14 @@ class CloudStore {
       if (e.code === 'TOKEN_INVALID') throw e;
       throw new Error('读取云端数据失败：' + (e.message || e));
     }
-    if (res.status === 404) {
-      this._cache = { tasks: [], sha: null };
-      return this._cache;
-    }
+    if (res.status === 404) return { tasks: [], sha: null };
     if (!res.ok) throw new Error('读取云端数据失败：HTTP ' + res.status);
     const data = await res.json();
     const sha = data.sha;
     let tasks;
     if (data.content) {
-      // 内联 base64（<1MB）
       tasks = this._parseTasks(this._base64ToUtf8(data.content));
     } else if (data.download_url) {
-      // 大文件回退：走 download_url（私有仓库需带 token）
       const token = sessionStorage.getItem(this._tokenKey);
       const r2 = await fetch(data.download_url, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!r2.ok) throw new Error('下载云端数据失败：HTTP ' + r2.status);
@@ -137,8 +190,7 @@ class CloudStore {
     } else {
       tasks = [];
     }
-    this._cache = { tasks, sha };
-    return this._cache;
+    return { tasks, sha };
   }
 
   _parseTasks(text) {
@@ -152,12 +204,12 @@ class CloudStore {
     }
   }
 
-  // 写入 tasks.json。409（sha 冲突）时重新拉取并重试一次，避免覆盖他端改动。
-  async _putFile(tasks) {
+  // 写入 tasks.json。传入显式 sha；409（sha 冲突）时重新拉取并重试两次。返回新 sha。
+  async _putFile(tasks, sha) {
     const content = this._utf8ToBase64(JSON.stringify(tasks));
-    const attempt = async (sha) => {
+    const attempt = async (s) => {
       const body = { message: `chore: update tasks (${new Date().toISOString().slice(0, 19)}Z)`, content, branch: this.branch };
-      if (sha) body.sha = sha;
+      if (s) body.sha = s;
       let res;
       try {
         res = await this._request('PUT', body);
@@ -173,18 +225,146 @@ class CloudStore {
       const data = await res.json();
       return { conflict: false, sha: data.content && data.content.sha };
     };
-    let cur = this._cache ? this._cache.sha : null;
-    let r = await attempt(cur);
-    // 409 冲突：可能是多端改写，也可能是 GitHub 提交传播的瞬时一致性窗口。
-    // 每次重试前延时一小段，并用绕过缓存的 GET 拿最新 sha，最多重试两次。
+    let r = await attempt(sha);
     for (let i = 0; r.conflict && i < 2; i++) {
       await this._delay(300 * (i + 1));
       const fresh = await this._fetchFile();
       r = await attempt(fresh.sha);
     }
-    if (r.conflict) throw new Error('CLOUD_CONFLICT'); // 仍冲突，放弃
-    this._cache = { tasks, sha: r.sha || (this._cache && this._cache.sha) };
-    return this._cache;
+    if (r.conflict) throw new Error('CLOUD_CONFLICT');
+    return r.sha || sha;
+  }
+
+  // ===== 合并（轻量 LWW，单用户低并发）=====
+  // 同 id 取 updatedAt 较新者；远端独有的任务纳入，除非本地墓碑时间 >= 任务 updatedAt（本地后删，丢弃）。
+  _merge(localTasks, remoteTasks, tombstones) {
+    const now = Date.now();
+    const EXPIRE = 30 * 24 * 3600 * 1000;
+    const tombs = new Map();
+    for (const t of (tombstones || [])) {
+      if (now - t.at < EXPIRE) tombs.set(t.id, t.at);
+    }
+    const byId = new Map();
+    for (const r of remoteTasks) byId.set(r.id, r);
+    for (const l of localTasks) {
+      const r = byId.get(l.id);
+      if (!r) { byId.set(l.id, l); continue; }
+      const lu = l.updatedAt ? Date.parse(l.updatedAt) : 0;
+      const ru = r.updatedAt ? Date.parse(r.updatedAt) : 0;
+      byId.set(l.id, lu >= ru ? l : r);
+    }
+    const result = [];
+    for (const [id, task] of byId) {
+      const tat = tombs.get(id);
+      if (tat !== undefined) {
+        const tu = task.updatedAt ? Date.parse(task.updatedAt) : 0;
+        if (tat >= tu) continue; // 本地后删，跳过，防复活
+      }
+      result.push(task);
+    }
+    return result;
+  }
+
+  _pruneTombstones(tombstones) {
+    const now = Date.now();
+    const EXPIRE = 30 * 24 * 3600 * 1000;
+    return (tombstones || []).filter(t => now - t.at < EXPIRE);
+  }
+
+  // ===== 同步核心：pull + push =====
+  async _sync() {
+    if (this._syncing) return;
+    this._syncing = true;
+    this._setStatus('syncing');
+    try {
+      this._ensureLoaded();
+      await this.ensureToken();
+      const remote = await this._fetchFile(); // { tasks, sha }
+      const localIds = new Set(this._cache.tasks.map(t => t.id));
+      const pulledNew = remote.tasks.some(t => !localIds.has(t.id)); // 远端拉到本地没有的新任务
+      const merged = this._merge(this._cache.tasks, remote.tasks, this._cache.tombstones);
+      const needPush = this._dirty || JSON.stringify(merged) !== JSON.stringify(remote.tasks);
+      let newSha;
+      if (needPush) {
+        newSha = await this._putFile(merged, remote.sha);
+      } else {
+        newSha = remote.sha;
+      }
+      this._cache.tasks = merged;
+      this._cache.sha = newSha;
+      this._cache.lastSyncedAt = Date.now();
+      this._cache.tombstones = this._pruneTombstones(this._cache.tombstones);
+      this._dirty = false;
+      this._saveLocal();
+      this._setStatus('synced');
+      if (pulledNew && typeof this.onSyncUpdate === 'function') {
+        try { this.onSyncUpdate(); } catch (_) {}
+      }
+    } catch (e) {
+      if (e && e.message === 'NO_TOKEN') {
+        this._setStatus('nologin');
+      } else {
+        console.warn('同步失败', e);
+        this._setStatus('error');
+        // 保留 _dirty，下次定时/手动重试
+      }
+    } finally {
+      this._syncing = false;
+    }
+  }
+
+  // ===== 生命周期：启动同步 =====
+  startSync() {
+    this._ensureLoaded();
+    this._createStatusBadge();
+    this._setStatus(this._dirty ? 'pending' : 'idle');
+    this._sync(); // 首次后台同步（拉取远端 + push 本地改动）
+    this._pullTimer = setInterval(() => this._sync(), 20000);
+    document.addEventListener('visibilitychange', () => this._sync());
+    // 关闭前尽力 flush：仅当已有 token 且有未 push 改动（避免关闭时弹 token 框）
+    window.addEventListener('beforeunload', () => {
+      if (sessionStorage.getItem(this._tokenKey) && this._dirty) this._sync();
+    });
+  }
+
+  // ===== 同步状态徽标 + 手动同步按钮 =====
+  _createStatusBadge() {
+    if (document.getElementById('cloudSyncWrap')) return;
+    const wrap = document.createElement('div');
+    wrap.id = 'cloudSyncWrap';
+    wrap.style.cssText = 'position:fixed;right:16px;bottom:16px;display:flex;align-items:center;gap:8px;z-index:9000;font-size:12px;font-family:inherit;user-select:none;';
+    const dot = document.createElement('span');
+    dot.style.cssText = 'display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;background:var(--bg-card,#fff);color:var(--text,#333);box-shadow:0 2px 10px rgba(0,0,0,.15);transition:opacity .3s,background .3s,color .3s;';
+    const btn = document.createElement('button');
+    btn.textContent = '立即同步';
+    btn.style.cssText = 'padding:6px 14px;border:none;border-radius:999px;background:#3b82f6;color:#fff;cursor:pointer;font-size:12px;box-shadow:0 2px 10px rgba(0,0,0,.15);';
+    btn.onclick = () => { if (!this._syncing) this._sync(); };
+    wrap.appendChild(dot);
+    wrap.appendChild(btn);
+    document.body.appendChild(wrap);
+    this._dot = dot;
+    this._btn = btn;
+  }
+
+  _setStatus(s) {
+    this._status = s;
+    if (!this._dot) return;
+    const map = {
+      synced:  { t: '✓ 已同步', bg: 'rgba(34,197,94,.16)',  col: '#16a34a', op: '.7',  btn: true },
+      syncing: { t: '⟳ 同步中', bg: 'rgba(59,130,246,.16)', col: '#2563eb', op: '1',   btn: false },
+      pending: { t: '… 待同步', bg: 'rgba(234,179,8,.18)',  col: '#ca8a04', op: '1',   btn: true },
+      error:   { t: '⚠ 同步失败', bg: 'rgba(239,68,68,.16)', col: '#dc2626', op: '1',   btn: true },
+      nologin: { t: '待登录',   bg: 'rgba(0,0,0,.08)',      col: 'var(--text,#666)', op: '1', btn: true },
+      idle:    { t: '● 就绪',   bg: 'var(--bg-card,#fff)',  col: 'var(--text,#666)', op: '.7', btn: true },
+    };
+    const c = map[s] || map.idle;
+    this._dot.textContent = c.t;
+    this._dot.style.background = c.bg;
+    this._dot.style.color = c.col;
+    this._dot.style.opacity = c.op;
+    this._btn.disabled = !c.btn;
+    this._btn.style.opacity = c.btn ? '1' : '.5';
+    this._btn.style.cursor = c.btn ? 'pointer' : 'default';
   }
 
   // ===== UTF-8 安全的 base64（任务含中文与图片 base64，可能很大）=====
@@ -205,48 +385,55 @@ class CloudStore {
     return new TextDecoder().decode(bytes);
   }
 
-  // ===== DataStore 接口（与 LocalStore 同构）=====
+  // ===== DataStore 接口（与 LocalStore 同构；全部本地即时，零网络）=====
   async getAllTasks() {
-    const c = await this._fetchFile();
-    // 补全缺失 id（与本地一致）
+    this._ensureLoaded();
     let maxId = 0;
-    for (const t of c.tasks) if (t.id) maxId = Math.max(maxId, t.id);
-    for (const t of c.tasks) if (!t.id) t.id = ++maxId;
-    return c.tasks;
+    for (const t of this._cache.tasks) if (t.id) maxId = Math.max(maxId, t.id);
+    for (const t of this._cache.tasks) if (!t.id) t.id = ++maxId;
+    return this._cache.tasks.slice();
   }
 
   async getTask(id) {
-    const tasks = await this.getAllTasks();
-    return tasks.find(t => t.id === id) || null;
+    this._ensureLoaded();
+    return this._cache.tasks.find(t => t.id === id) || null;
   }
 
   async addTask(task) {
-    const tasks = await this.getAllTasks();
-    const maxId = tasks.reduce((m, t) => Math.max(m, t.id || 0), 0);
+    this._ensureLoaded();
+    const maxId = this._cache.tasks.reduce((m, t) => Math.max(m, t.id || 0), 0);
     task.id = maxId + 1;
-    tasks.unshift(task);
-    await this.saveAll(tasks);
+    this._cache.tasks.unshift(task);
+    this._touch();
     return task.id;
   }
 
   async updateTask(task) {
-    const tasks = await this.getAllTasks();
-    const idx = tasks.findIndex(t => t.id === task.id);
+    this._ensureLoaded();
+    const idx = this._cache.tasks.findIndex(t => t.id === task.id);
     if (idx === -1) throw new Error('任务不存在');
-    tasks[idx] = task;
-    await this.saveAll(tasks);
+    this._cache.tasks[idx] = task;
+    this._touch();
     return task.id;
   }
 
   async deleteTask(id) {
-    const tasks = await this.getAllTasks();
-    const filtered = tasks.filter(t => t.id !== id);
-    if (filtered.length === tasks.length) throw new Error('任务不存在');
-    await this.saveAll(filtered);
+    this._ensureLoaded();
+    const before = this._cache.tasks.length;
+    this._cache.tasks = this._cache.tasks.filter(t => t.id !== id);
+    if (this._cache.tasks.length === before) throw new Error('任务不存在');
+    this._cache.tombstones = this._cache.tombstones || [];
+    if (!this._cache.tombstones.some(t => t.id === id)) {
+      this._cache.tombstones.push({ id, at: Date.now() });
+    }
+    this._touch();
   }
 
   async saveAll(tasks) {
-    await this._putFile(tasks);
+    this._ensureLoaded();
+    this._cache.tasks = tasks.slice();
+    this._cache.tombstones = []; // 整体覆写（导入）场景：清空墓碑
+    this._touch();
   }
 }
 

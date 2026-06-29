@@ -445,13 +445,10 @@ const App = {
     // 本地双击 index.html（file://）即使存在 cloud-config.js 也强制走本地，行为与原版一致。
     if (window.CLOUD_CONFIG && location.protocol !== 'file:') {
       store = new CloudStore(window.CLOUD_CONFIG);
-      // 联网模式需先输入 GitHub Token（作为访问凭证），再加载。
-      // 用户取消输入则给出提示并以空数据渲染（不阻塞页面）。
-      try {
-        await store.ensureToken();
-      } catch (e) {
-        this.toast('未输入 Token，暂无法读取云端数据', 'error');
-      }
+      // 本地优先：先从本地缓存秒回渲染，token 弹框与网络同步交给后台 startSync，不阻塞页面。
+      // 远端拉取到本地没有的新任务时回调刷新列表（换设备场景）。
+      store.onSyncUpdate = () => { this.loadTasks().then(() => this.render()); };
+      store.startSync();
     }
     await this.loadTasks();
     this.render();
