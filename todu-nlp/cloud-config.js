@@ -1,8 +1,10 @@
 /**
  * 联网模式配置（部署版专用）
  *
- * 仅含公开信息（仓库坐标），不含任何 Token。Token 在浏览器访问时弹框输入、仅存 sessionStorage。
- * 提交到仓库是安全的；GitHub Pages 部署时会随站点一起发布。
+ * 仓库坐标公开；Token 可选填入下方 token 字段随站点发布，实现「跨端免输入」。
+ * ⚠ 注意：本文件会随公开仓库发布到 GitHub Pages。若填入 token，任何访问站点的人都能
+ *   提取它并读写该数据仓库（仅限此 fine-grained PAT 授权范围）。仅当数据不敏感时才填。
+ *   不填则保持原行为：首次访问弹框输入，存 localStorage（同设备持久，换设备需再输一次）。
  *
  * 本地双击 index.html（file:// 协议）即使加载了本文件，也会被 app.js 强制走本地存储，
  * 不会进入联网模式——见 app.js init() 中的协议判定。
@@ -18,5 +20,6 @@ window.CLOUD_CONFIG = {
   owner: 'sylviavicki',          // GitHub 用户名
   repo: 'todu-nlp-data',         // 存 tasks.json 的仓库（推荐私有数据仓库）
   path: 'tasks.json',            // 仓库内 tasks.json 的路径
-  branch: 'main'                 // 分支
+  branch: 'main',                // 分支
+  token: ''                      // 可选：填入 fine-grained PAT 即跨端免输入（会随公开站点发布，数据不敏感时才填）
 };

@@ -26,7 +26,9 @@ class CloudStore {
     // 本地缓存（工作副本）：{ tasks:[], sha, lastSyncedAt, tombstones:[{id,at}] }
     this._cache = null;
     this._localKey = 'zhiban_cloud_cache';
-    this._tokenKey = 'zhiban_gh_token';
+    this._tokenKey = 'zhiban_gh_token';       // token 存 localStorage（同设备持久；跨端靠 embeddedToken）
+    this._embeddedToken = config.token || '';  // 嵌入站点的 PAT（跨端免输入）；401/403 后置 invalid 改走弹框
+    this._embeddedValid = !!this._embeddedToken;
     // GET 缓存破坏计数器：GitHub Contents API 的 GET 响应带 max-age≈60s 缓存头，
     // 同一浏览器短时间内会读到旧 sha，导致 PUT 因 sha 不匹配而 409。每次 GET 追加递增参数强制走源站。
     this._bust = 0;
@@ -88,15 +90,18 @@ class CloudStore {
   }
 
   // ===== Token 门 =====
-  // 确保已获得 token：sessionStorage 有就直接返回；没有则弹框让用户输入。
+  // 优先级：嵌入 token（config.token，跨端免输入）→ localStorage（同设备持久）→ 弹框输入。
+  // 401/403 时 _clearToken 会把嵌入 token 标失效并清 localStorage，从而回落到弹框。
   ensureToken() {
-    const existing = sessionStorage.getItem(this._tokenKey);
-    if (existing) return Promise.resolve(existing);
+    const embedded = this._embeddedValid ? this._embeddedToken : '';
+    const stored = localStorage.getItem(this._tokenKey);
+    const cached = embedded || stored;
+    if (cached) return Promise.resolve(cached);
     if (this._tokenPromise) return this._tokenPromise;
     this._tokenPromise = this._promptForToken().then(token => {
       this._tokenPromise = null;
       if (!token) throw new Error('NO_TOKEN'); // 用户取消
-      sessionStorage.setItem(this._tokenKey, token);
+      localStorage.setItem(this._tokenKey, token);
       return token;
     });
     return this._tokenPromise;
@@ -132,7 +137,9 @@ class CloudStore {
   }
 
   _clearToken() {
-    sessionStorage.removeItem(this._tokenKey);
+    // token 失效：清 localStorage + 把嵌入 token 标失效，强制下次走弹框
+    localStorage.removeItem(this._tokenKey);
+    this._embeddedValid = false;
   }
 
   _delay(ms) {
@@ -183,7 +190,8 @@ class CloudStore {
     if (data.content) {
       tasks = this._parseTasks(this._base64ToUtf8(data.content));
     } else if (data.download_url) {
-      const token = sessionStorage.getItem(this._tokenKey);
+      // 大文件回退：走 download_url；私有仓库需带 token（嵌入或 localStorage）
+      const token = this._embeddedValid ? this._embeddedToken : localStorage.getItem(this._tokenKey);
       const r2 = await fetch(data.download_url, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!r2.ok) throw new Error('下载云端数据失败：HTTP ' + r2.status);
       tasks = this._parseTasks(await r2.text());
@@ -321,9 +329,10 @@ class CloudStore {
     this._sync(); // 首次后台同步（拉取远端 + push 本地改动）
     this._pullTimer = setInterval(() => this._sync(), 20000);
     document.addEventListener('visibilitychange', () => this._sync());
-    // 关闭前尽力 flush：仅当已有 token 且有未 push 改动（避免关闭时弹 token 框）
+    // 关闭前尽力 flush：仅当已有可用 token（嵌入或 localStorage）且有未 push 改动（避免关闭时弹 token 框）
     window.addEventListener('beforeunload', () => {
-      if (sessionStorage.getItem(this._tokenKey) && this._dirty) this._sync();
+      const hasToken = (this._embeddedValid && this._embeddedToken) || localStorage.getItem(this._tokenKey);
+      if (hasToken && this._dirty) this._sync();
     });
   }
 
