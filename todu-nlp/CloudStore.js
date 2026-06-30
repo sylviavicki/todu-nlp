@@ -11,7 +11,8 @@
  * （含删除墓碑防「换设备时被删任务复活」）→ 若有改动则 PUT 合并结果（带最新 sha，含 409 重试）。
  *
  * 访问凭证 = GitHub fine-grained PAT（仅给目标仓库 Contents 读写权限）。
- * 首次同步时弹框输入，存 sessionStorage（关浏览器即失效，避免长期驻留）。
+ * token 优先级：嵌入 token（cloud-config.js，跨端免输入）→ localStorage（同设备持久）→ 首次同步弹框输入。
+ * 注意：嵌入 token 会随公开站点发布，仅数据不敏感时使用；GitHub push protection 会拦截含 PAT 的提交。
  *
  * 仅在部署版（index.html 引入了 cloud-config.js，设置了 window.CLOUD_CONFIG）时启用；
  * 本地 file:// 直开 index.html 不会加载本文件，走 LocalStore，行为与原版一致。
