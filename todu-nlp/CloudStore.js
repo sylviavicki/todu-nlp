@@ -289,8 +289,7 @@ class CloudStore {
       this._ensureLoaded();
       await this.ensureToken();
       const remote = await this._fetchFile(); // { tasks, sha }
-      const localIds = new Set(this._cache.tasks.map(t => t.id));
-      const pulledNew = remote.tasks.some(t => !localIds.has(t.id)); // 远端拉到本地没有的新任务
+      const beforeLocal = JSON.stringify(this._cache.tasks); // 同步前本地快照
       const merged = this._merge(this._cache.tasks, remote.tasks, this._cache.tombstones);
       const needPush = this._dirty || JSON.stringify(merged) !== JSON.stringify(remote.tasks);
       let newSha;
@@ -306,7 +305,10 @@ class CloudStore {
       this._dirty = false;
       this._saveLocal();
       this._setStatus('synced');
-      if (pulledNew && typeof this.onSyncUpdate === 'function') {
+      // 合并结果与同步前本地不同（远端新增/修改/删除），刷新 UI。
+      // 本地刚操作的改动 App 已知晓，刷新一次内容一致无害。
+      const hasRemoteChange = JSON.stringify(merged) !== beforeLocal;
+      if (hasRemoteChange && typeof this.onSyncUpdate === 'function') {
         try { this.onSyncUpdate(); } catch (_) {}
       }
     } catch (e) {
