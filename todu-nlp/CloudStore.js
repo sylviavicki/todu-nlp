@@ -245,39 +245,31 @@ class CloudStore {
   }
 
   // ===== 合并（轻量 LWW，单用户低并发）=====
-  // 同 id 取 updatedAt 较新者；远端独有的任务纳入，除非本地墓碑时间 >= 任务 updatedAt（本地后删，丢弃）。
-  _merge(localTasks, remoteTasks, tombstones) {
-    const now = Date.now();
-    const EXPIRE = 30 * 24 * 3600 * 1000;
-    const tombs = new Map();
-    for (const t of (tombstones || [])) {
-      if (now - t.at < EXPIRE) tombs.set(t.id, t.at);
-    }
+  // 软删除模型：删除 = 标 deletedAt 留在数组里（随 tasks.json 跨端传播）。
+  // 同 id 取「最后修改时间」较新者；最后修改时间 = max(updatedAt, deletedAt)。
+  // 这样 A 端删除（deletedAt 较新）会传播到 B 端，B 端 getAllTasks 过滤后不显示——删除不再被复活。
+  _lastMod(t) {
+    const u = t.updatedAt ? Date.parse(t.updatedAt) : 0;
+    const d = t.deletedAt || 0;
+    return Math.max(u, d);
+  }
+
+  _merge(localTasks, remoteTasks) {
     const byId = new Map();
     for (const r of remoteTasks) byId.set(r.id, r);
     for (const l of localTasks) {
       const r = byId.get(l.id);
       if (!r) { byId.set(l.id, l); continue; }
-      const lu = l.updatedAt ? Date.parse(l.updatedAt) : 0;
-      const ru = r.updatedAt ? Date.parse(r.updatedAt) : 0;
-      byId.set(l.id, lu >= ru ? l : r);
+      byId.set(l.id, this._lastMod(l) >= this._lastMod(r) ? l : r);
     }
-    const result = [];
-    for (const [id, task] of byId) {
-      const tat = tombs.get(id);
-      if (tat !== undefined) {
-        const tu = task.updatedAt ? Date.parse(task.updatedAt) : 0;
-        if (tat >= tu) continue; // 本地后删，跳过，防复活
-      }
-      result.push(task);
-    }
-    return result;
+    return Array.from(byId.values());
   }
 
-  _pruneTombstones(tombstones) {
+  // 清理软删除超 30 天的任务（所有端此时都已同步过该删除）
+  _pruneDeleted(tasks) {
     const now = Date.now();
     const EXPIRE = 30 * 24 * 3600 * 1000;
-    return (tombstones || []).filter(t => now - t.at < EXPIRE);
+    return (tasks || []).filter(t => !t.deletedAt || now - t.deletedAt < EXPIRE);
   }
 
   // ===== 同步核心：pull + push =====
@@ -290,7 +282,8 @@ class CloudStore {
       await this.ensureToken();
       const remote = await this._fetchFile(); // { tasks, sha }
       const beforeLocal = JSON.stringify(this._cache.tasks); // 同步前本地快照
-      const merged = this._merge(this._cache.tasks, remote.tasks, this._cache.tombstones);
+      let merged = this._merge(this._cache.tasks, remote.tasks);
+      merged = this._pruneDeleted(merged); // 清理 30 天前的软删除
       const needPush = this._dirty || JSON.stringify(merged) !== JSON.stringify(remote.tasks);
       let newSha;
       if (needPush) {
@@ -301,7 +294,6 @@ class CloudStore {
       this._cache.tasks = merged;
       this._cache.sha = newSha;
       this._cache.lastSyncedAt = Date.now();
-      this._cache.tombstones = this._pruneTombstones(this._cache.tombstones);
       this._dirty = false;
       this._saveLocal();
       this._setStatus('synced');
@@ -398,17 +390,20 @@ class CloudStore {
   }
 
   // ===== DataStore 接口（与 LocalStore 同构；全部本地即时，零网络）=====
+  // 软删除：带 deletedAt 的任务保留在 _cache.tasks 里（用于跨端传播），但对 App 不可见。
   async getAllTasks() {
     this._ensureLoaded();
     let maxId = 0;
     for (const t of this._cache.tasks) if (t.id) maxId = Math.max(maxId, t.id);
-    for (const t of this._cache.tasks) if (!t.id) t.id = ++maxId;
-    return this._cache.tasks.slice();
+    const active = this._cache.tasks.filter(t => !t.deletedAt);
+    for (const t of active) if (!t.id) t.id = ++maxId;
+    return active;
   }
 
   async getTask(id) {
     this._ensureLoaded();
-    return this._cache.tasks.find(t => t.id === id) || null;
+    const t = this._cache.tasks.find(t => t.id === id);
+    return (t && !t.deletedAt) ? t : null;
   }
 
   async addTask(task) {
@@ -429,22 +424,21 @@ class CloudStore {
     return task.id;
   }
 
+  // 软删除：标记 deletedAt 留在数组里，随 tasks.json 传播；不再用本地墓碑。
   async deleteTask(id) {
     this._ensureLoaded();
-    const before = this._cache.tasks.length;
-    this._cache.tasks = this._cache.tasks.filter(t => t.id !== id);
-    if (this._cache.tasks.length === before) throw new Error('任务不存在');
-    this._cache.tombstones = this._cache.tombstones || [];
-    if (!this._cache.tombstones.some(t => t.id === id)) {
-      this._cache.tombstones.push({ id, at: Date.now() });
-    }
+    const t = this._cache.tasks.find(x => x.id === id);
+    if (!t) throw new Error('任务不存在');
+    t.deletedAt = Date.now();
     this._touch();
   }
 
+  // 整体替换活跃任务；保留当前缓存里未超期的软删除（避免导入/撤销时丢失尚未同步的删除）。
   async saveAll(tasks) {
     this._ensureLoaded();
-    this._cache.tasks = tasks.slice();
-    this._cache.tombstones = []; // 整体覆写（导入）场景：清空墓碑
+    const activeIds = new Set(tasks.map(t => t.id));
+    const keepDeleted = this._cache.tasks.filter(t => t.deletedAt && !activeIds.has(t.id));
+    this._cache.tasks = [...tasks, ...keepDeleted];
     this._touch();
   }
 }
